@@ -53,13 +53,13 @@ func NewSystemdStatsCollector(logger *slog.Logger) (Collector, error) {
 		cpuSecDesc: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, subsystem, "cpu_seconds_total"),
 			"Cpu usage in seconds",
-			[]string{"pname", "mode"},
+			[]string{"mode"},
 			nil,
 		),
 		membytesDesc: prometheus.NewDesc(
-			prometheus.BuildFQName(namespace, subsystem, "memory_bytes"),
+			prometheus.BuildFQName(namespace, subsystem, "memory_Resident_bytes"),
 			"number of bytes of memory in use",
-			[]string{"pname", "memtype"},
+			nil,
 			nil,
 		),
 		logger: logger,
@@ -80,27 +80,12 @@ func (c *systemdStatsCollector) Update(ch chan<- prometheus.Metric) error {
 		return err
 	}
 
-	// 进程的cpu使用量(seconds)：字段utime(14)和stime(15)，即用户和系统时间
-	ch <- prometheus.MustNewConstMetric(c.cpuSecDesc, prometheus.CounterValue, float64(stat.UTime/userHZ), c.Name, "user")
-	ch <- prometheus.MustNewConstMetric(c.cpuSecDesc, prometheus.CounterValue, float64(stat.STime/userHZ), c.Name, "system")
+	// 进程的cpu使用量(seconds):分为用户和系统时间，字段utime和stime。原始数据单位是jiffies，转换为seconds需要除以userHZ
+	ch <- prometheus.MustNewConstMetric(c.cpuSecDesc, prometheus.CounterValue, float64(stat.UTime)/userHZ, "user")
+	ch <- prometheus.MustNewConstMetric(c.cpuSecDesc, prometheus.CounterValue, float64(stat.STime)/userHZ, "system")
 
-	// 进程的内存使用量(bytes): 驻留内存RES(24),虚拟内存VIRT(23),共享内存SHR
-	ch <- prometheus.MustNewConstMetric(c.membytesDesc, prometheus.GaugeValue, float64(stat.ResidentMemory()), c.Name, "resident")
-
-	ch <- prometheus.MustNewConstMetric(c.membytesDesc, prometheus.GaugeValue, float64(stat.VirtualMemory()), c.Name, "virtual")
-
-	status, err := p.NewStatus()
-	if err != nil {
-		return err
-	}
-	ch <- prometheus.MustNewConstMetric(c.membytesDesc, prometheus.GaugeValue, float64(status.VmSwap), c.Name, "swapped")
-
-	smaps, err := p.ProcSMapsRollup()
-	if err != nil {
-		return err
-	}
-	ch <- prometheus.MustNewConstMetric(c.membytesDesc, prometheus.GaugeValue, float64(smaps.Pss), c.Name, "proportionalResident")
-	ch <- prometheus.MustNewConstMetric(c.membytesDesc, prometheus.GaugeValue, float64(smaps.SwapPss), c.Name, "proportionalSwapped")
+	// 进程的内存使用量(bytes):驻留内存RES
+	ch <- prometheus.MustNewConstMetric(c.membytesDesc, prometheus.GaugeValue, float64(stat.ResidentMemory()))
 
 	return nil
 }
